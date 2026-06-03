@@ -51,6 +51,8 @@ class Arx5ControllerBase // parent class for the other two controllers
     std::shared_ptr<spdlog::logger> logger_;
     std::thread background_send_recv_thread_;
 
+    double filtered_gripper_torque_ = 0.0;
+    double protected_gripper_kp_scale_ = 1.0;
     bool prev_gripper_updated_ = false; // To suppress the warning message
     bool background_send_recv_running_ = false;
     bool destroy_background_threads_ = false;

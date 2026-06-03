@@ -53,7 +53,7 @@ class CMakeBuild(build_ext):
 
 
 setup(
-    ext_modules=[CMakeExtension("arx5_interface")],
+    ext_modules=[CMakeExtension("arx5_interface.python.arx5_interface")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
 )

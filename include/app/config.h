@@ -24,6 +24,11 @@ class RobotConfig
 
     double gripper_vel_max; // m/s
     double gripper_torque_max;
+    bool gripper_contact_protection = true;
+    double gripper_contact_torque_threshold = 0.0; // Nm; <=0 uses 0.35 * gripper_torque_max
+    double gripper_contact_unload_margin = 0.0005; // m; positive opens away from contact
+    double gripper_contact_kp_scale = 0.2;
+    double gripper_contact_torque_filter_alpha = 0.2;
     double gripper_width;        // m, fully opened: gripper_width, fully closed: 0
     double gripper_open_readout; // fully-opened gripper motor readout. Should be calibrated using
                                  // python/examples/calibrate.py

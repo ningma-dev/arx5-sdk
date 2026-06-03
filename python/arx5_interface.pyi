@@ -20,6 +20,11 @@ class RobotConfig:
     ee_vel_max: np.ndarray
     gripper_vel_max: float
     gripper_torque_max: float
+    gripper_contact_protection: bool
+    gripper_contact_torque_threshold: float
+    gripper_contact_unload_margin: float
+    gripper_contact_kp_scale: float
+    gripper_contact_torque_filter_alpha: float
     gripper_width: float
     gripper_open_readout: float
     joint_dof: int

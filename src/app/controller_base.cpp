@@ -1,6 +1,7 @@
 #include "app/controller_base.h"
 #include "app/common.h"
 #include "utils.h"
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <sys/syscall.h>
@@ -45,10 +46,14 @@ Arx5ControllerBase::~Arx5ControllerBase()
         // damping_gain.kd[3] *= 1.5;
 
         set_gain(damping_gain);
+        JointState joint_state = get_joint_state();
         {
             std::lock_guard<std::mutex> guard(cmd_mutex_);
             output_joint_cmd_.vel = VecDoF::Zero(robot_config_.joint_dof);
             output_joint_cmd_.torque = VecDoF::Zero(robot_config_.joint_dof);
+            output_joint_cmd_.gripper_pos = joint_state.gripper_pos;
+            output_joint_cmd_.gripper_vel = 0.0;
+            output_joint_cmd_.gripper_torque = 0.0;
             interpolator_.init_fixed(output_joint_cmd_);
         }
         background_send_recv_running_ = true;
@@ -224,6 +229,8 @@ void Arx5ControllerBase::set_to_damping()
         std::lock_guard<std::mutex> guard(cmd_mutex_);
         joint_state.vel = VecDoF::Zero(robot_config_.joint_dof);
         joint_state.torque = VecDoF::Zero(robot_config_.joint_dof);
+        joint_state.gripper_vel = 0.0;
+        joint_state.gripper_torque = 0.0;
         interpolator_.init_fixed(joint_state);
     }
 }
@@ -376,12 +383,17 @@ void Arx5ControllerBase::enter_emergency_state_()
     logger_->error("Emergency state entered. Please restart the program.");
     while (true)
     {
-        std::lock_guard<std::mutex> guard(cmd_mutex_);
         set_gain(damping_gain);
-        output_joint_cmd_.vel = VecDoF::Zero(robot_config_.joint_dof);
-        output_joint_cmd_.torque = VecDoF::Zero(robot_config_.joint_dof);
-
-        interpolator_.init_fixed(output_joint_cmd_);
+        JointState joint_state = get_joint_state();
+        {
+            std::lock_guard<std::mutex> guard(cmd_mutex_);
+            joint_state.vel = VecDoF::Zero(robot_config_.joint_dof);
+            joint_state.torque = VecDoF::Zero(robot_config_.joint_dof);
+            joint_state.gripper_vel = 0.0;
+            joint_state.gripper_torque = 0.0;
+            output_joint_cmd_ = joint_state;
+            interpolator_.init_fixed(output_joint_cmd_);
+        }
         send_recv_();
         sleep_ms(5);
     }
@@ -527,7 +539,39 @@ void Arx5ControllerBase::update_output_cmd_()
                            robot_config_.gripper_width);
         output_joint_cmd_.gripper_pos = robot_config_.gripper_width;
     }
-    if (std::abs(joint_state_.gripper_torque) > robot_config_.gripper_torque_max / 2)
+    protected_gripper_kp_scale_ = 1.0;
+    if (robot_config_.gripper_contact_protection && robot_config_.gripper_torque_max > 0)
+    {
+        double filter_alpha = std::min(std::max(robot_config_.gripper_contact_torque_filter_alpha, 0.0), 1.0);
+        filtered_gripper_torque_ =
+            (1.0 - filter_alpha) * filtered_gripper_torque_ + filter_alpha * joint_state_.gripper_torque;
+
+        double emergency_threshold = robot_config_.gripper_torque_max;
+        double contact_threshold = robot_config_.gripper_contact_torque_threshold;
+        if (contact_threshold <= 0.0)
+            contact_threshold = 0.35 * emergency_threshold;
+        contact_threshold = std::min(std::max(contact_threshold, 0.0), 0.95 * emergency_threshold);
+
+        double abs_torque = std::abs(filtered_gripper_torque_);
+        if (abs_torque > contact_threshold)
+        {
+            double protect_alpha =
+                std::min(1.0, 2.0 * (abs_torque - contact_threshold) /
+                                  std::max(1e-6, emergency_threshold - contact_threshold));
+            double blocked_sign = filtered_gripper_torque_ > 0 ? 1.0 : -1.0;
+            double unload_margin = std::max(robot_config_.gripper_contact_unload_margin, 0.0);
+            double unload_pos = joint_state_.gripper_pos - blocked_sign * unload_margin;
+            output_joint_cmd_.gripper_pos =
+                (1.0 - protect_alpha) * output_joint_cmd_.gripper_pos + protect_alpha * unload_pos;
+            output_joint_cmd_.gripper_pos =
+                std::min(std::max(output_joint_cmd_.gripper_pos, 0.0), robot_config_.gripper_width);
+            output_joint_cmd_.gripper_vel = 0.0;
+            output_joint_cmd_.gripper_torque = 0.0;
+            protected_gripper_kp_scale_ =
+                1.0 - protect_alpha * (1.0 - std::min(std::max(robot_config_.gripper_contact_kp_scale, 0.0), 1.0));
+        }
+    }
+    else if (std::abs(joint_state_.gripper_torque) > robot_config_.gripper_torque_max / 2)
     {
         double sign = joint_state_.gripper_torque > 0 ? 1 : -1; // -1 for closing blocked, 1 for opening blocked
         double delta_pos =
@@ -631,7 +675,8 @@ void Arx5ControllerBase::send_recv_()
         double gripper_motor_vel =
             output_joint_cmd_.gripper_vel / robot_config_.gripper_width * robot_config_.gripper_open_readout;
         double gripper_motor_torque = output_joint_cmd_.gripper_torque / torque_constant_DM_J4310;
-        can_handle_.send_DM_motor_cmd(robot_config_.gripper_motor_id, gain_.gripper_kp, gain_.gripper_kd,
+        can_handle_.send_DM_motor_cmd(robot_config_.gripper_motor_id, gain_.gripper_kp * protected_gripper_kp_scale_,
+                                      gain_.gripper_kd,
                                       gripper_motor_pos, gripper_motor_vel, gripper_motor_torque);
         int finish_send_motor_time_us = get_time_us();
         sleep_us(communicate_sleep_us - (finish_send_motor_time_us - start_send_motor_time_us));
