@@ -297,45 +297,53 @@ void Arx5ControllerBase::init_robot_()
 
 void Arx5ControllerBase::check_joint_state_sanity_()
 {
-    std::lock_guard<std::mutex> guard(state_mutex_);
-
-    for (int i = 0; i < robot_config_.joint_dof; ++i)
+    bool should_enter_emergency = false;
     {
-        if (std::abs(joint_state_.pos[i]) > robot_config_.joint_pos_max[i] + 3.14 ||
-            std::abs(joint_state_.pos[i]) < robot_config_.joint_pos_min[i] - 3.14)
-        {
-            logger_->error("Joint {} pos data error: {:.3f}. Please restart the program.", i, joint_state_.pos[i]);
-            enter_emergency_state_();
-        }
+        std::lock_guard<std::mutex> state_guard(state_mutex_);
 
-        if (interpolator_.is_initialized())
+        for (int i = 0; i < robot_config_.joint_dof; ++i)
         {
-            std::lock_guard<std::mutex> guard(cmd_mutex_);
-            JointState interpolator_cmd = interpolator_.interpolate(get_timestamp());
-            if (std::abs(interpolator_cmd.pos[i]) > robot_config_.joint_pos_max[i] + 3.14 ||
-                std::abs(interpolator_cmd.pos[i]) < robot_config_.joint_pos_min[i] - 3.14)
+            if (std::abs(joint_state_.pos[i]) > robot_config_.joint_pos_max[i] + 3.14 ||
+                std::abs(joint_state_.pos[i]) < robot_config_.joint_pos_min[i] - 3.14)
             {
-                logger_->error("Joint {} interpolated command data error: {:.3f}. Please restart the program.", i,
-                               interpolator_cmd.pos[i]);
-                enter_emergency_state_();
+                logger_->error("Joint {} pos data error: {:.3f}. Please restart the program.", i, joint_state_.pos[i]);
+                should_enter_emergency = true;
+            }
+
+            if (interpolator_.is_initialized())
+            {
+                std::lock_guard<std::mutex> cmd_guard(cmd_mutex_);
+                JointState interpolator_cmd = interpolator_.interpolate(get_timestamp());
+                if (std::abs(interpolator_cmd.pos[i]) > robot_config_.joint_pos_max[i] + 3.14 ||
+                    std::abs(interpolator_cmd.pos[i]) < robot_config_.joint_pos_min[i] - 3.14)
+                {
+                    logger_->error("Joint {} interpolated command data error: {:.3f}. Please restart the program.", i,
+                                   interpolator_cmd.pos[i]);
+                    should_enter_emergency = true;
+                }
+            }
+            if (std::abs(joint_state_.torque[i]) > 100 * robot_config_.joint_torque_max[i])
+            {
+                logger_->error("Joint {} torque data error: {:.3f}. Please restart the program.", i,
+                               joint_state_.torque[i]);
+                should_enter_emergency = true;
             }
         }
-        if (std::abs(joint_state_.torque[i]) > 100 * robot_config_.joint_torque_max[i])
+        // Gripper should be around 0~robot_config_.gripper_width
+        double gripper_width_tolerance = 0.005; // m
+        if (joint_state_.gripper_pos < -gripper_width_tolerance ||
+            joint_state_.gripper_pos > robot_config_.gripper_width + gripper_width_tolerance)
         {
-            logger_->error("Joint {} torque data error: {:.3f}. Please restart the program.", i,
-                           joint_state_.torque[i]);
-            enter_emergency_state_();
+            logger_->error("Gripper position error: got {:.3f} but should be in 0~{:.3f} (m). Please close the gripper "
+                           "before turning on the arm; change robot_config.gripper_open_readout to a negative number (a "
+                           "common value is -3.4 for some recent robots); or recalibrate gripper home and width.",
+                           joint_state_.gripper_pos, robot_config_.gripper_width);
+            should_enter_emergency = true;
         }
     }
-    // Gripper should be around 0~robot_config_.gripper_width
-    double gripper_width_tolerance = 0.005; // m
-    if (joint_state_.gripper_pos < -gripper_width_tolerance ||
-        joint_state_.gripper_pos > robot_config_.gripper_width + gripper_width_tolerance)
+
+    if (should_enter_emergency)
     {
-        logger_->error("Gripper position error: got {:.3f} but should be in 0~{:.3f} (m). Please close the gripper "
-                       "before turning on the arm; change robot_config.gripper_open_readout to a negative number (a "
-                       "common value is -3.4 for some recent robots); or recalibrate gripper home and width.",
-                       joint_state_.gripper_pos, robot_config_.gripper_width);
         enter_emergency_state_();
     }
 }
