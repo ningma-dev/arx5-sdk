@@ -24,6 +24,7 @@ class Arx5ControllerBase // parent class for the other two controllers
     JointState get_joint_cmd();
     JointState get_joint_state();
     EEFState get_eef_state();
+    Pose6d forward_kinematics(Eigen::VectorXd joint_pos);
     Pose6d get_home_pose();
     void set_gain(Gain new_gain);
     Gain get_gain();

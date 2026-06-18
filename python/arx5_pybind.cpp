@@ -70,6 +70,9 @@ PYBIND11_MODULE(arx5_interface, m)
         .def("set_joint_traj", &Arx5JointController::set_joint_traj)
         .def("get_home_pose", &Arx5JointController::get_home_pose)
         .def("get_eef_state", &Arx5JointController::get_eef_state)
+        .def("forward_kinematics", [](Arx5JointController &self, Eigen::VectorXd joint_pos) {
+            return self.forward_kinematics(joint_pos);
+        })
         .def("get_joint_cmd", &Arx5JointController::get_joint_cmd)
         .def("set_gain", &Arx5JointController::set_gain)
         .def("get_gain", &Arx5JointController::get_gain)
@@ -91,6 +94,9 @@ PYBIND11_MODULE(arx5_interface, m)
         .def("get_joint_state", &Arx5CartesianController::get_joint_state)
         .def("get_timestamp", &Arx5CartesianController::get_timestamp)
         .def("get_home_pose", &Arx5CartesianController::get_home_pose)
+        .def("forward_kinematics", [](Arx5CartesianController &self, Eigen::VectorXd joint_pos) {
+            return self.forward_kinematics(joint_pos);
+        })
         .def("set_gain", &Arx5CartesianController::set_gain)
         .def("get_gain", &Arx5CartesianController::get_gain)
         .def("set_log_level", &Arx5CartesianController::set_log_level)

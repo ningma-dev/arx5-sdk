@@ -91,13 +91,18 @@ EEFState Arx5ControllerBase::get_eef_state()
 {
     EEFState eef_state;
     JointState joint_state = get_joint_state();
-    Pose6d tool_pose = solver_->forward_kinematics(joint_state.pos);
+    Pose6d tool_pose = forward_kinematics(joint_state.pos);
     eef_state.pose_6d = tool_pose;
     eef_state.timestamp = joint_state.timestamp;
     eef_state.gripper_pos = joint_state.gripper_pos;
     eef_state.gripper_vel = joint_state.gripper_vel;
     eef_state.gripper_torque = joint_state.gripper_torque;
     return eef_state;
+}
+
+Pose6d Arx5ControllerBase::forward_kinematics(Eigen::VectorXd joint_pos)
+{
+    return solver_->forward_kinematics(joint_pos);
 }
 
 void Arx5ControllerBase::set_gain(Gain new_gain)
